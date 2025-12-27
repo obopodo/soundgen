@@ -11,3 +11,9 @@ wheels/
 
 # Workspace settings
 .python-version
+
+# Artifacts
+*.wav
+
+# Other
+.DS_Store
