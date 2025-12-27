@@ -167,7 +167,7 @@ class VAE(nn.Module):
 
     def __init__(
         self,
-        input_shape: int,
+        input_shape: list[int],
         conv_filters_number: list[int],
         conv_kernel_size: list[int],
         conv_strides: list[int],
@@ -255,9 +255,9 @@ class VAELoss(nn.Module):
         self.mse_loss_weight = mse_loss_weight
         self.warmup_epochs = warmup_epochs
 
-    def forward(self, preds, X, mu, log_var, epoch: int) -> torch.Tensor:
+    def forward(self, X, X_reconstructed, mu, log_var, epoch: int) -> torch.Tensor:
         """Calculate VAE loss as a sum of reconstruction loss (MSE) and KL divergence."""
-        reconstruction_loss = nn.functional.mse_loss(preds, X, reduction="mean")
+        reconstruction_loss = nn.functional.mse_loss(X, X_reconstructed, reduction="mean")
         kl_divergence = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
         kl_beta = max(0, min(1.0, (epoch - 1) / self.warmup_epochs))
         logger.info(
@@ -276,7 +276,6 @@ if __name__ == "__main__":
         conv_strides=[2, 2, 2, 2, 2],
         latent_space_dim=128,
         shape_before_bottleneck=(16, 2, 2),
-        # padding=0,
     )
     device = get_device()
     model = model.to(device)
