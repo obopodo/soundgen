@@ -1,0 +1,34 @@
+{
+    "input_shape": [
+        1,
+        32,
+        173
+    ],
+    "conv_filters_number": [
+        128,
+        64,
+        32,
+        32,
+        16
+    ],
+    "conv_kernel_size": [
+        3,
+        3,
+        3,
+        3,
+        3
+    ],
+    "conv_strides": [
+        2,
+        2,
+        2,
+        2,
+        2
+    ],
+    "latent_space_dim": 128,
+    "shape_before_bottleneck": [
+        16,
+        1,
+        6
+    ]
+}
