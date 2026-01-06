@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from torchinfo import summary
 
-from .utils import calculate_conv2d_output_shape, get_device
+from soundgen.models.utils import calculate_conv2d_output_shape, get_device
 
 DEBUG_CONVOLUTIONS = False
 
