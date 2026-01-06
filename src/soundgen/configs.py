@@ -11,6 +11,7 @@ class TrainConfig:
 
 @dataclass
 class VAEConfig:
+    # VAE params:
     input_shape: list[int]  # [num_channels, height, width]
     conv_filters_number: list[int]
     conv_kernel_size: list[int]
@@ -18,7 +19,9 @@ class VAEConfig:
     latent_space_dim: int = 128
     padding: int = 1
     shape_before_bottleneck: tuple | None = None  # if None - will try to calculate based on conv layers
-    kl_weight: float = 0.0005
+    # Loss params:
+    mse_weight: float = 2000
+    warmup_epochs: int = 0
 
     def __post_init__(self):
         if isinstance(self.shape_before_bottleneck, list):
