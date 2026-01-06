@@ -14,7 +14,7 @@ DEBUG_CONVOLUTIONS = False
 logger = logging.getLogger(__name__)
 if not logger.hasHandlers():
     logger.setLevel(logging.INFO)
-    filename = Path(__file__).parent.parent / "vae_loss.log"
+    filename = Path(__file__).parent.parent.parent / "vae_loss.log"
     fh = logging.FileHandler(filename)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     fh.setFormatter(formatter)
