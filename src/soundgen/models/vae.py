@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 
+import lightning as L
 import numpy as np
 import torch
 from torch import nn
@@ -264,6 +265,29 @@ class VAELoss(nn.Module):
             f"Epoch {epoch} | MSE: {reconstruction_loss.item()} | KLD: {kl_divergence.item()} | Beta: {kl_beta}"
         )
         return self.mse_loss_weight * reconstruction_loss + kl_beta * kl_divergence
+
+
+class VAELit(L.LightningModule):
+    def __init__(self, model: VAE, loss_fn: VAELoss):
+        super().__init__()
+        self.model = model
+        self.loss_fn = loss_fn
+
+    def training_step(self, batch, batch_idx) -> float:
+        """Train VAE for one epoch."""
+        X, sr, label = batch
+        mu, log_var = self.model.encoder(X)
+        z = self.model.reparameterize(mu, log_var)
+        X_reconstructed = self.model.decoder(z)
+        loss = self.loss_fn(
+            X_reconstructed,
+            X,
+            mu,
+            log_var,
+            batch_idx,
+        )
+        self.log("train_loss", loss)
+        return loss
 
 
 if __name__ == "__main__":
