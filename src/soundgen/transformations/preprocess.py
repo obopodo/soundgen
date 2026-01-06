@@ -7,11 +7,12 @@ from IPython.display import Audio, display
 from scipy.io import wavfile
 from torch import nn
 from torchaudio import functional as AF
-from torchaudio.transforms import MelSpectrogram
+from torchaudio.transforms import Fade, MelSpectrogram, TimeMasking, TimeStretch
 from tqdm import tqdm
 
 
 class PreprocessingModule(nn.Module):
+
     def __init__(
         self,
         target_sample_rate: int = 22050,
@@ -61,6 +62,7 @@ class PreprocessingModule(nn.Module):
         waveform = self._crop_or_pad(waveform)
         spectrogram = self.mel_spectrogram(waveform)
         spectrogram, s_min, s_max = self._normalize(spectrogram)
+        spectrogram = spectrogram.unsqueeze(0)  # Add channel dimension
         return spectrogram, s_min, s_max
 
     def _resample(self, waveform: torch.Tensor, sample_rate: int) -> torch.Tensor:
@@ -80,10 +82,10 @@ class PreprocessingModule(nn.Module):
 
         Right side padding will be applied if the waveform is shorter than the target length.
         """
-        if waveform.shape[1] > self.num_samples:
+        if waveform.shape[0] > self.num_samples:
             waveform = waveform[:, : self.num_samples]
-        elif waveform.shape[1] < self.num_samples:
-            padding_size = self.num_samples - waveform.shape[1]
+        elif waveform.shape[0] < self.num_samples:
+            padding_size = self.num_samples - waveform.shape[0]
             # The padding size by which to pad some dimensions of input are
             # described starting from the last dimension and moving forward.
             # For each dim we pass 2 numbers: left_pad and right_pad, so len(pad)/2 dimensions of the input will be padded.
@@ -106,8 +108,12 @@ class PreprocessingModule(nn.Module):
         tensor = (tensor - tensor_min) / (tensor_max - tensor_min)
         return tensor, tensor_min, tensor_max
 
+    def _augment(self, waveform: torch.Tensor):
+        return waveform  # Placeholder for future augmentations
+
 
 class PreprocessingPipeline:
+    """Pipeline to prepare dataset as mel spectrograms and save to disk."""
     def __init__(self, dataset_path: str):
         self.module = PreprocessingModule()
         self.dataset_path = dataset_path
