@@ -6,8 +6,10 @@ import lightning as L
 import numpy as np
 import torch
 from torch import nn
+from torch.optim import Adam
 from torchinfo import summary
 
+from soundgen.configs import VAEConfig
 from soundgen.models.utils import calculate_conv2d_output_shape, get_device
 
 DEBUG_CONVOLUTIONS = False
@@ -247,13 +249,14 @@ class VAE(nn.Module):
 
 
 class VAELoss(nn.Module):
+
     def __init__(
         self,
-        mse_loss_weight: int = 100,
+        mse_weight: int = 100,
         warmup_epochs: int = 20,
     ):
         super().__init__()
-        self.mse_loss_weight = mse_loss_weight
+        self.mse_weight = mse_weight
         self.warmup_epochs = warmup_epochs
 
     def forward(self, X, X_reconstructed, mu, log_var, epoch: int) -> torch.Tensor:
@@ -264,17 +267,34 @@ class VAELoss(nn.Module):
         logger.info(
             f"Epoch {epoch} | MSE: {reconstruction_loss.item()} | KLD: {kl_divergence.item()} | Beta: {kl_beta}"
         )
-        return self.mse_loss_weight * reconstruction_loss + kl_beta * kl_divergence
+        return self.mse_weight * reconstruction_loss + kl_beta * kl_divergence
 
 
 class VAELit(L.LightningModule):
-    def __init__(self, model: VAE, loss_fn: VAELoss):
+    """Lightning wrapper for VAE model.
+
+    Implements training step and optimizer configuration.
+    """
+
+    def __init__(self, vae_config: VAEConfig, learning_rate: float = 1e-3):
         super().__init__()
-        self.model = model
-        self.loss_fn = loss_fn
+        self.model = VAE(
+            input_shape=vae_config.input_shape,
+            conv_filters_number=vae_config.conv_filters_number,
+            conv_kernel_size=vae_config.conv_kernel_size,
+            conv_strides=vae_config.conv_strides,
+            latent_space_dim=vae_config.latent_space_dim,
+            padding=vae_config.padding,
+            shape_before_bottleneck=vae_config.shape_before_bottleneck,
+        )
+        self.loss_fn = VAELoss(
+            mse_weight=vae_config.mse_weight,
+            warmup_epochs=vae_config.warmup_epochs,
+        )
+        self.learning_rate = learning_rate
 
     def training_step(self, batch, batch_idx) -> float:
-        """Train VAE for one epoch."""
+        """Train VAE on a single batch."""
         X, sr, label = batch
         mu, log_var = self.model.encoder(X)
         z = self.model.reparameterize(mu, log_var)
@@ -289,18 +309,24 @@ class VAELit(L.LightningModule):
         self.log("train_loss", loss)
         return loss
 
+    def configure_optimizers(self):
+        optimizer = Adam(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
 
 if __name__ == "__main__":
     DEBUG_CONVOLUTIONS = True
 
-    model = VAE(
-        input_shape=[1, 64, 64],
-        conv_filters_number=[128, 64, 32, 32, 16],
-        conv_kernel_size=[3, 3, 3, 3, 3],
-        conv_strides=[2, 2, 2, 2, 2],
-        latent_space_dim=128,
-        shape_before_bottleneck=(16, 2, 2),
-    )
+    config = {
+        "input_shape": [1, 60, 87],
+        "conv_filters_number": [128, 64, 32, 32, 16],
+        "conv_kernel_size": [3, 3, 3, 3, 3],
+        "conv_strides": [2, 2, 2, 2, 2],
+        "latent_space_dim": 32,
+        "shape_before_bottleneck": [16, 2, 3],
+    }
+
+    model = VAE(**config)
     device = get_device()
     model = model.to(device)
-    summary(model, input_size=(1, 1, 64, 44))
+    summary(model, input_size=[1] + config["input_shape"])
