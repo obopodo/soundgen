@@ -35,3 +35,7 @@ class VAEConfig:
         with open(path, "r") as f:
             data = json.load(f)
         return cls(**data)
+
+    def __repr__(self) -> str:
+        items = ",\n    ".join(f"{k}={v!r}" for k, v in self.to_dict().items())
+        return f"{self.__class__.__name__}(\n    {items}\n)"
