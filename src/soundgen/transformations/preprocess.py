@@ -15,7 +15,7 @@ class PreprocessingModule(nn.Module):
 
     def __init__(
         self,
-        target_sample_rate: int = 22050,
+        sample_rate: int,
         num_samples: int = 32700,  # to get 64x64 spectrograms
         n_fft: int = 1024,
         n_mels: int = 64,
@@ -24,8 +24,9 @@ class PreprocessingModule(nn.Module):
 
         Parameters
         ----------
-        target_sample_rate : int, optional
-            The target sample rate for the audio, by default 22050
+        sample_rate : int
+            Sample rate of the input audio. Must be the same for all audios.
+            In this package it's ensured by the dataset class.
         num_samples : int, optional
             The target number of samples for the audio, by default 22050.
             If the audio is shorter, it will be padded, if longer, it will be cropped.
@@ -35,16 +36,15 @@ class PreprocessingModule(nn.Module):
             The number of Mel bands, by default 64
         """
         super().__init__()
-        self.mel_spectrogram = MelSpectrogram(
-            sample_rate=target_sample_rate,
+        self.spectrogram = MelSpectrogram(
+            sample_rate=sample_rate,
             n_fft=n_fft,
             hop_length=n_fft // 2,
             n_mels=n_mels,
         )
         self.num_samples = num_samples
-        self.target_sample_rate = target_sample_rate
 
-    def forward(self, waveform: torch.Tensor, sample_rate: int, save_path: str = "") -> torch.Tensor:
+    def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         """Apply resampling (if needed), mixdown, length fix, and mel spectrogram.
 
         Parameters
@@ -53,29 +53,14 @@ class PreprocessingModule(nn.Module):
             Audio waveform.
         sample_rate: int
             The actual sample rate of this waveform.
-        save_path: str, optional
-            If provided, the processed spectrogram will be saved to this path, by default "".
         """
         waveform = self._normalize_audio(waveform)
-        waveform = self._resample(waveform, sample_rate)
-        waveform = self._mixdown(waveform)
         waveform = self._crop_or_pad(waveform)
-        spectrogram = self.mel_spectrogram(waveform)
-        spectrogram, s_min, s_max = self._normalize(spectrogram)
+        spectrogram = self.spectrogram(waveform)
+        spectrogram, s_min, s_max = self._normalize_spectrogram(spectrogram)
         spectrogram = spectrogram.unsqueeze(0)  # Add channel dimension
-        return spectrogram, s_min, s_max
-
-    def _resample(self, waveform: torch.Tensor, sample_rate: int) -> torch.Tensor:
-        if sample_rate != self.target_sample_rate:
-            # Use functional resample so we can handle varying input sample rates per item
-            waveform = AF.resample(waveform, orig_freq=sample_rate, new_freq=self.target_sample_rate)
-        return waveform
-
-    def _mixdown(self, waveform: torch.Tensor) -> torch.Tensor:
-        """Convert stereo to mono if necessary by averaging channels."""
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-        return waveform
+        # spectrogram = waveform
+        return spectrogram
 
     def _crop_or_pad(self, waveform: torch.Tensor) -> torch.Tensor:
         """Crop or pad the waveform to the target number of samples.
@@ -96,17 +81,26 @@ class PreprocessingModule(nn.Module):
 
     def _normalize_audio(self, waveform: torch.Tensor) -> torch.Tensor:
         """Convert integer PCM to float32 in [-1, 1]."""
-        if not torch.is_floating_point(waveform):
-            max_amplitude = waveform.abs().max()
-            waveform = waveform.float() / float(max_amplitude)
+        max_amplitude = waveform.abs().max()
+        waveform = waveform.float() / float(max_amplitude)
         return waveform
 
-    def _normalize(self, tensor: torch.Tensor) -> torch.Tensor:
-        """Min-max normalization and saving."""
-        tensor_min = tensor.min()
-        tensor_max = tensor.max()
-        tensor = (tensor - tensor_min) / (tensor_max - tensor_min)
-        return tensor, tensor_min, tensor_max
+    def _normalize_spectrogram(self, spectrogram: torch.Tensor) -> tuple[torch.Tensor, float, float]:
+        """Normalize spectrogram to [0, 1] range.
+
+        Returns
+        -------
+        spectrogram_norm : torch.Tensor
+            Normalized spectrogram.
+        s_min : float
+            Minimum value of the original spectrogram.
+        s_max : float
+            Maximum value of the original spectrogram.
+        """
+        s_min = spectrogram.min().item()
+        s_max = spectrogram.max().item()
+        spectrogram_norm = (spectrogram - s_min) / (s_max - s_min + 1e-9)
+        return spectrogram_norm, s_min, s_max
 
     def _augment(self, waveform: torch.Tensor):
         return waveform  # Placeholder for future augmentations
