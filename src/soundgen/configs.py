@@ -20,7 +20,7 @@ class VAEConfig:
     padding: int = 1
     shape_before_bottleneck: tuple | None = None  # if None - will try to calculate based on conv layers
     # Loss params:
-    mse_weight: float = 2000
+    kl_weight: float = 1.0
     warmup_epochs: int = 0
 
     def __post_init__(self):
