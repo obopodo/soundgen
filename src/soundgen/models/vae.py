@@ -46,7 +46,11 @@ class Encoder(nn.Module):
         self.padding = padding
 
         self._num_conv_layers = len(conv_filters_number)
-        self.shape_before_bottleneck = self._get_shape_before_bottleneck(output_shape)
+        self.conv_output_shapes = self._compute_conv_output_shapes()
+        # allow overriding the bottleneck shape if provided (e.g. loaded from config)
+        self.shape_before_bottleneck = output_shape if output_shape is not None else self.conv_output_shapes[-1]
+        if isinstance(self.shape_before_bottleneck, list):
+            self.shape_before_bottleneck = tuple(self.shape_before_bottleneck)
         # size of the flattened layer after convolutions
         self.linear_layer_size = np.prod(self.shape_before_bottleneck)
 
@@ -55,17 +59,16 @@ class Encoder(nn.Module):
         self.conv_layers = self._init_convolutions()
         self.flatten = nn.Flatten()
 
-    def _get_shape_before_bottleneck(self, output_shape):
-        """Calculate the size of the flattened layer after convolutions.
-
-        The same will be used for the layer output size after the bottleneck.
-        """
-        if output_shape is not None:
-            return output_shape
-        size = self.input_shape[1:]  # the number of input channels doesn't matter
-        for kernel_size, stride in zip(self.conv_kernel_size, self.conv_strides):
+    def _compute_conv_output_shapes(self) -> list[tuple[int, int, int]]:
+        """Pre-compute spatial shapes for each conv layer in the encoder."""
+        size = self.input_shape[-2:]
+        shapes: list[tuple[int, int, int]] = []
+        for out_channels, kernel_size, stride in zip(
+            self.conv_filters_number, self.conv_kernel_size, self.conv_strides
+        ):
             size = calculate_conv2d_output_shape(size, kernel_size, padding=self.padding, stride=stride)
-        return self.conv_filters_number[-1], size[0], size[1]  # (last_conv_channels, height, width)
+            shapes.append((out_channels, size[0], size[1]))
+        return shapes
 
     def _init_convolutions(self) -> nn.Sequential:
         conv_layers = nn.Sequential()
@@ -100,6 +103,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
+
     def __init__(
         self,
         latent_space_dim: int,
@@ -109,6 +113,8 @@ class Decoder(nn.Module):
         conv_kernel_size: list[int],
         conv_strides: list[int],
         num_channels: int,
+        input_shape: list[int],
+        encoder_output_shapes: list[tuple[int, int, int]],
         padding: int = 1,
     ):
         super().__init__()
@@ -119,6 +125,8 @@ class Decoder(nn.Module):
         self._num_conv_layers = len(conv_filters_number)
         self.latent_space_dim = latent_space_dim
         self.num_channels = num_channels
+        self.input_shape = input_shape
+        self.encoder_output_shapes = encoder_output_shapes
         self.padding = padding
 
         self.dense_layer = nn.Linear(latent_space_dim, linear_layer_size)
@@ -127,9 +135,19 @@ class Decoder(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def _init_conv_transpose_layers(self) -> nn.Sequential:
-        """Loop through the all conv layers in reverse order except the first one."""
+        """Loop through the conv layers in reverse order and mirror encoder shapes."""
         conv_transpose_layers = nn.Sequential()
+        current_hw = (self.encoder_output_shapes[-1][1], self.encoder_output_shapes[-1][2])
+
         for i in reversed(range(1, self._num_conv_layers)):
+            target_hw = (self.encoder_output_shapes[i - 1][1], self.encoder_output_shapes[i - 1][2])
+            output_padding = self._calculate_output_padding(
+                current_hw,
+                target_hw,
+                self.conv_kernel_size[i],
+                self.conv_strides[i],
+                self.padding,
+            )
             conv_transpose_layers.append(
                 nn.ConvTranspose2d(
                     in_channels=self.conv_filters_number[i],  # ?
@@ -137,15 +155,25 @@ class Decoder(nn.Module):
                     kernel_size=self.conv_kernel_size[i],
                     stride=self.conv_strides[i],
                     padding=self.padding,
-                    output_padding=(1 if self.conv_strides[i] > 1 else 0),
+                    output_padding=output_padding,
                 )
                 # output padding is used to ensure the output shape matches the input shape
                 # IDK how to calculate the exact value, 1 just worked for stride equal to 1 and 2
             )
+
             conv_transpose_layers.append(nn.ReLU())
             conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
+            current_hw = target_hw
 
         # Add the last conv transpose layer to get back to the original number of channels
+        final_target_hw = (self.input_shape[1], self.input_shape[2])
+        output_padding = self._calculate_output_padding(
+            current_hw,
+            final_target_hw,
+            self.conv_kernel_size[0],
+            self.conv_strides[0],
+            self.padding,
+        )
         conv_transpose_layers.append(
             nn.ConvTranspose2d(
                 in_channels=self.conv_filters_number[0],
@@ -153,10 +181,31 @@ class Decoder(nn.Module):
                 kernel_size=self.conv_kernel_size[0],
                 stride=self.conv_strides[0],
                 padding=self.padding,
-                output_padding=(1 if self.conv_strides[0] > 1 else 0),
+                output_padding=output_padding,
             )
         )
         return conv_transpose_layers
+
+    @staticmethod
+    def _calculate_output_padding(
+        input_hw: tuple[int, int],
+        target_hw: tuple[int, int],
+        kernel_size: int,
+        stride: int,
+        padding: int,
+    ) -> tuple[int, int]:
+        """Compute output_padding that exactly matches the target spatial size."""
+
+        def dim_padding(input_size: int, target_size: int) -> int:
+            pad = target_size - ((input_size - 1) * stride - 2 * padding + kernel_size)
+            if pad < 0 or pad >= stride:
+                raise ValueError(
+                    f"Invalid output padding computed: pad={pad}, input={input_size}, target={target_size}, "
+                    f"stride={stride}, kernel={kernel_size}, padding={padding}"
+                )
+            return pad
+
+        return dim_padding(input_hw[0], target_hw[0]), dim_padding(input_hw[1], target_hw[1])
 
     def forward(self, x):
         x = self.dense_layer(x)
@@ -164,6 +213,44 @@ class Decoder(nn.Module):
         x = self.conv_transpose_layers(x)
         x = self.sigmoid(x)
         return x
+
+
+class DecoderUpsample(Decoder):
+    """Another decoder implementation using upsampling + conv layers.
+
+    This should be a bit better as it avoids checkerboard artifacts from transposed convolutions.
+    """
+
+    def _init_conv_transpose_layers(self) -> nn.Sequential:
+        """Mirror encoder shapes using nearest-neighbor upsample + SAME conv to avoid shrinkage."""
+        conv_transpose_layers = nn.Sequential()
+
+        for i in reversed(range(1, self._num_conv_layers)):
+            target_hw = (self.encoder_output_shapes[i - 1][1], self.encoder_output_shapes[i - 1][2])
+            conv_transpose_layers.append(nn.Upsample(size=target_hw, mode="nearest"))
+            conv_transpose_layers.append(
+                nn.Conv2d(
+                    in_channels=self.conv_filters_number[i],
+                    out_channels=self.conv_filters_number[i - 1],
+                    kernel_size=self.conv_kernel_size[i],
+                    padding="same",
+                )
+            )
+            conv_transpose_layers.append(nn.ReLU())
+            conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
+
+        # Final upsample + conv to recover original channel count and spatial size
+        final_target_hw = (self.input_shape[1], self.input_shape[2])
+        conv_transpose_layers.append(nn.Upsample(size=final_target_hw, mode="nearest"))
+        conv_transpose_layers.append(
+            nn.Conv2d(
+                in_channels=self.conv_filters_number[0],
+                out_channels=self.num_channels,
+                kernel_size=self.conv_kernel_size[0],
+                padding="same",
+            )
+        )
+        return conv_transpose_layers
 
 
 class VAE(nn.Module):
@@ -177,6 +264,7 @@ class VAE(nn.Module):
         latent_space_dim: int,
         padding: int = 1,
         shape_before_bottleneck=None,
+        use_transpose_decoder: bool = False,
     ):
         super().__init__()
         self._mu = None
@@ -198,7 +286,8 @@ class VAE(nn.Module):
             padding=padding,
             output_shape=shape_before_bottleneck,
         )
-        self.decoder = Decoder(
+        DecoderClass = Decoder if use_transpose_decoder else DecoderUpsample
+        self.decoder = DecoderClass(
             latent_space_dim=latent_space_dim,
             shape_before_bottleneck=self.encoder.shape_before_bottleneck,
             linear_layer_size=self.encoder.linear_layer_size,
@@ -206,6 +295,8 @@ class VAE(nn.Module):
             conv_kernel_size=conv_kernel_size,
             conv_strides=conv_strides,
             num_channels=self.num_channels,
+            input_shape=input_shape,
+            encoder_output_shapes=self.encoder.conv_output_shapes,
             padding=padding,
         )
 
@@ -252,22 +343,24 @@ class VAELoss(nn.Module):
 
     def __init__(
         self,
-        mse_weight: int = 100,
+        kl_weight: float = 1.0,
         warmup_epochs: int = 20,
     ):
         super().__init__()
-        self.mse_weight = mse_weight
+        self.kl_weight = kl_weight
         self.warmup_epochs = warmup_epochs
 
     def forward(self, X, X_reconstructed, mu, log_var, epoch: int) -> torch.Tensor:
         """Calculate VAE loss as a sum of reconstruction loss (MSE) and KL divergence."""
-        reconstruction_loss = nn.functional.mse_loss(X, X_reconstructed, reduction="mean")
+        # reconstruction_loss = nn.functional.mse_loss(X, X_reconstructed, reduction="mean")
+        reconstruction_loss = nn.functional.l1_loss(X, X_reconstructed, reduction="mean")
         kl_divergence = -0.5 * torch.mean(1 + log_var - mu.pow(2) - log_var.exp())
-        kl_beta = max(0, min(1.0, (epoch - 1) / self.warmup_epochs))
+        denom = max(1, int(self.warmup_epochs))
+        kl_beta = max(0.0, min(1.0, (float(epoch) - 1.0) / denom))
         logger.info(
             f"Epoch {epoch} | MSE: {reconstruction_loss.item()} | KLD: {kl_divergence.item()} | Beta: {kl_beta}"
         )
-        return self.mse_weight * reconstruction_loss + kl_beta * kl_divergence
+        return reconstruction_loss + kl_beta * self.kl_weight * kl_divergence
 
 
 class VAELit(L.LightningModule):
@@ -276,20 +369,35 @@ class VAELit(L.LightningModule):
     Implements training step and optimizer configuration.
     """
 
-    def __init__(self, vae_config: VAEConfig, learning_rate: float = 1e-3):
+    def __init__(
+        self,
+        input_shape: list[int],
+        conv_filters_number: list[int],
+        conv_kernel_size: list[int],
+        conv_strides: list[int],
+        latent_space_dim: int,
+        padding: int = 1,
+        shape_before_bottleneck=None,
+        use_transpose_decoder: bool = False,
+        warmup_epochs: int = 0,
+        kl_weight: float = 1.0,
+        learning_rate: float = 1e-3,
+    ):
         super().__init__()
+        self.save_hyperparameters()
         self.model = VAE(
-            input_shape=vae_config.input_shape,
-            conv_filters_number=vae_config.conv_filters_number,
-            conv_kernel_size=vae_config.conv_kernel_size,
-            conv_strides=vae_config.conv_strides,
-            latent_space_dim=vae_config.latent_space_dim,
-            padding=vae_config.padding,
-            shape_before_bottleneck=vae_config.shape_before_bottleneck,
+            input_shape=input_shape,
+            conv_filters_number=conv_filters_number,
+            conv_kernel_size=conv_kernel_size,
+            conv_strides=conv_strides,
+            latent_space_dim=latent_space_dim,
+            padding=padding,
+            shape_before_bottleneck=shape_before_bottleneck,
+            use_transpose_decoder=use_transpose_decoder,
         )
         self.loss_fn = VAELoss(
-            mse_weight=vae_config.mse_weight,
-            warmup_epochs=vae_config.warmup_epochs,
+            kl_weight=kl_weight,
+            warmup_epochs=warmup_epochs,
         )
         self.learning_rate = learning_rate
 
@@ -297,14 +405,15 @@ class VAELit(L.LightningModule):
         """Train VAE on a single batch."""
         X, sr, label = batch
         mu, log_var = self.model.encoder(X)
+        log_var = log_var.clamp(min=-10, max=10)
         z = self.model.reparameterize(mu, log_var)
         X_reconstructed = self.model.decoder(z)
         loss = self.loss_fn(
-            X_reconstructed,
             X,
+            X_reconstructed,
             mu,
             log_var,
-            batch_idx,
+            self.current_epoch + 1,
         )
         self.log("train_loss", loss)
         return loss
@@ -320,10 +429,10 @@ if __name__ == "__main__":
     config = {
         "input_shape": [1, 60, 87],
         "conv_filters_number": [128, 64, 32, 32, 16],
-        "conv_kernel_size": [3, 3, 3, 3, 3],
-        "conv_strides": [2, 2, 2, 2, 2],
+        "conv_kernel_size": [4, 4, 4, 3, 3],
+        "conv_strides": [2, 2, 2, 1, 1],
         "latent_space_dim": 32,
-        "shape_before_bottleneck": [16, 2, 3],
+        "shape_before_bottleneck": [16, 7, 10],
     }
 
     model = VAE(**config)
