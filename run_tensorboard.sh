@@ -1,2 +1,2 @@
 #!/bin/zsh
-PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API:UserWarning" tensorboard --logdir=logs
+PYTHONWARNINGS="ignore:pkg_resources is deprecated as an API:UserWarning" tensorboard --logdir=experiments/lightning_logs/
