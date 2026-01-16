@@ -1,34 +1,11 @@
 {
-    "input_shape": [
-        1,
-        32,
-        173
-    ],
-    "conv_filters_number": [
-        128,
-        64,
-        32,
-        32,
-        16
-    ],
-    "conv_kernel_size": [
-        3,
-        3,
-        3,
-        3,
-        3
-    ],
-    "conv_strides": [
-        2,
-        2,
-        2,
-        2,
-        2
-    ],
-    "latent_space_dim": 128,
-    "shape_before_bottleneck": [
-        16,
-        1,
-        6
-    ]
+    "input_shape": [ 1, 60, 87 ],
+    "conv_filters_number": [ 128, 64, 32, 32, 16 ],
+    "conv_kernel_size": [ 4, 4, 4, 3, 3 ],
+    "conv_strides": [ 2, 2, 2, 1, 1 ],
+    "latent_space_dim": 32,
+    "shape_before_bottleneck": [ 16, 7, 10 ],
+
+    "mse_weight": 1000000,
+    "warmup_epochs": 20
 }
