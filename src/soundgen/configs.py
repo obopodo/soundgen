@@ -23,9 +23,9 @@ class VAEConfig:
     kl_weight: float = 1.0
     warmup_epochs: int = 0
 
-    def __post_init__(self):
-        if isinstance(self.shape_before_bottleneck, list):
-            self.shape_before_bottleneck = tuple(self.shape_before_bottleneck)
+    # def __post_init__(self):
+    #     if isinstance(self.shape_before_bottleneck, list):
+    #         self.shape_before_bottleneck = tuple(self.shape_before_bottleneck)
 
     def to_dict(self) -> dict:
         return asdict(self)
