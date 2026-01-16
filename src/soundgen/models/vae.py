@@ -227,7 +227,7 @@ class DecoderUpsample(Decoder):
 
         for i in reversed(range(1, self._num_conv_layers)):
             target_hw = (self.encoder_output_shapes[i - 1][1], self.encoder_output_shapes[i - 1][2])
-            conv_transpose_layers.append(nn.Upsample(size=target_hw, mode="nearest"))
+            conv_transpose_layers.append(nn.Upsample(size=target_hw, mode="bilinear"))
             conv_transpose_layers.append(
                 nn.Conv2d(
                     in_channels=self.conv_filters_number[i],
@@ -241,7 +241,7 @@ class DecoderUpsample(Decoder):
 
         # Final upsample + conv to recover original channel count and spatial size
         final_target_hw = (self.input_shape[1], self.input_shape[2])
-        conv_transpose_layers.append(nn.Upsample(size=final_target_hw, mode="nearest"))
+        conv_transpose_layers.append(nn.Upsample(size=final_target_hw, mode="bilinear"))
         conv_transpose_layers.append(
             nn.Conv2d(
                 in_channels=self.conv_filters_number[0],
