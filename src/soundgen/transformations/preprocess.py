@@ -19,6 +19,7 @@ class PreprocessingModule(nn.Module):
         num_samples: int = 32700,  # to get 64x64 spectrograms
         n_fft: int = 1024,
         n_mels: int = 64,
+        power: float = 1.0,
     ):
         """Pipeline for audio to spectrogram transformation.
 
@@ -34,6 +35,8 @@ class PreprocessingModule(nn.Module):
             The number of FFT components, by default 1024
         n_mels : int, optional
             The number of Mel bands, by default 64
+        power : float, optional
+            Exponent for the magnitude spectrogram, by default 1.0
         """
         super().__init__()
         self.spectrogram = MelSpectrogram(
@@ -41,8 +44,11 @@ class PreprocessingModule(nn.Module):
             n_fft=n_fft,
             hop_length=n_fft // 2,
             n_mels=n_mels,
+            power=power,  # Use magnitude spectrogram as it's better for reconstruction using Griffin-Lim
         )
         self.num_samples = num_samples
+        self.s_min = None
+        self.s_max = None
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         """Apply resampling (if needed), mixdown, length fix, and mel spectrogram.
@@ -57,7 +63,7 @@ class PreprocessingModule(nn.Module):
         waveform = self._normalize_audio(waveform)
         waveform = self._crop_or_pad(waveform)
         spectrogram = self.spectrogram(waveform)
-        spectrogram, s_min, s_max = self._normalize_spectrogram(spectrogram)
+        spectrogram, self.s_min, self.s_max = self._normalize_spectrogram(spectrogram)
         spectrogram = spectrogram.unsqueeze(0)  # Add channel dimension
         # spectrogram = waveform
         return spectrogram
