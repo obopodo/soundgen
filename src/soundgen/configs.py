@@ -1,6 +1,8 @@
 import json
 from dataclasses import asdict, dataclass, field
 
+import yaml
+
 
 @dataclass
 class TrainConfig:
@@ -22,6 +24,7 @@ class VAEConfig:
     # Loss params:
     kl_weight: float = 1.0
     warmup_epochs: int = 0
+    autoencode: bool = False
 
     # def __post_init__(self):
     #     if isinstance(self.shape_before_bottleneck, list):
@@ -37,6 +40,13 @@ class VAEConfig:
     def from_json(cls, path: str) -> "VAEConfig":
         with open(path, "r") as f:
             data = json.load(f)
+        return cls(**data)
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "VAEConfig":
+
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
         return cls(**data)
 
     def __repr__(self) -> str:

@@ -87,7 +87,14 @@ class Encoder(nn.Module):
                     padding=self.padding,
                 )
             )
-            conv_layers.append(nn.BatchNorm2d(self.conv_filters_number[i]))
+            # conv_layers.append(nn.BatchNorm2d(self.conv_filters_number[i]))
+            conv_layers.append(
+                nn.GroupNorm(
+                    num_groups=min(8, self.conv_filters_number[i]),
+                    num_channels=self.conv_filters_number[i],
+                )
+            )
+
             conv_layers.append(nn.ReLU())
 
         return conv_layers
@@ -227,7 +234,7 @@ class DecoderUpsample(Decoder):
 
         for i in reversed(range(1, self._num_conv_layers)):
             target_hw = (self.encoder_output_shapes[i - 1][1], self.encoder_output_shapes[i - 1][2])
-            conv_transpose_layers.append(nn.Upsample(size=target_hw, mode="bilinear"))
+            conv_transpose_layers.append(nn.Upsample(size=target_hw, mode="nearest"))
             conv_transpose_layers.append(
                 nn.Conv2d(
                     in_channels=self.conv_filters_number[i],
@@ -236,12 +243,18 @@ class DecoderUpsample(Decoder):
                     padding="same",
                 )
             )
+            # conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
+            conv_transpose_layers.append(
+                nn.GroupNorm(
+                    num_groups=min(8, self.conv_filters_number[i - 1]),
+                    num_channels=self.conv_filters_number[i - 1],
+                )
+            )
             conv_transpose_layers.append(nn.ReLU())
-            conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
 
         # Final upsample + conv to recover original channel count and spatial size
         final_target_hw = (self.input_shape[1], self.input_shape[2])
-        conv_transpose_layers.append(nn.Upsample(size=final_target_hw, mode="bilinear"))
+        conv_transpose_layers.append(nn.Upsample(size=final_target_hw, mode="nearest"))
         conv_transpose_layers.append(
             nn.Conv2d(
                 in_channels=self.conv_filters_number[0],
@@ -265,6 +278,7 @@ class VAE(nn.Module):
         padding: int = 1,
         shape_before_bottleneck=None,
         use_transpose_decoder: bool = False,
+        autoencode: bool = False,
     ):
         super().__init__()
         self._mu = None
@@ -276,6 +290,7 @@ class VAE(nn.Module):
         self.conv_strides = conv_strides  # stride for each conv layer, eg [1, 2, 2]
         self.latent_space_dim = latent_space_dim
         self.padding = padding
+        self.autoencode = autoencode
 
         self.encoder = Encoder(
             input_shape=input_shape,
@@ -307,6 +322,8 @@ class VAE(nn.Module):
         return x
 
     def reparameterize(self, mu, log_var):
+        if self.autoencode:
+            return mu
         epsilon = torch.randn_like(log_var)  # .to(DEVICE)
         z = mu + torch.exp(log_var / 2) * epsilon  # reparameterization trick
         return z
@@ -379,6 +396,7 @@ class VAELit(L.LightningModule):
         padding: int = 1,
         shape_before_bottleneck=None,
         use_transpose_decoder: bool = False,
+        autoencode: bool = False,
         warmup_epochs: int = 0,
         kl_weight: float = 1.0,
         learning_rate: float = 1e-3,
@@ -394,6 +412,7 @@ class VAELit(L.LightningModule):
             padding=padding,
             shape_before_bottleneck=shape_before_bottleneck,
             use_transpose_decoder=use_transpose_decoder,
+            autoencode=autoencode,
         )
         self.loss_fn = VAELoss(
             kl_weight=kl_weight,
