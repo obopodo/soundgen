@@ -1,0 +1,30 @@
+autoencode: false
+conv_filters_number:
+- 128
+- 64
+- 32
+- 32
+- 16
+conv_kernel_size:
+- 4
+- 4
+- 4
+- 3
+- 3
+conv_strides:
+- 2
+- 2
+- 2
+- 1
+- 1
+input_shape:
+- 1
+- 257
+- 87
+kl_weight: 0.001
+latent_space_dim: 32
+learning_rate: 0.0005
+padding: 1
+shape_before_bottleneck: null
+use_transpose_decoder: false
+warmup_epochs: 20
