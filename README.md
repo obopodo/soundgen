@@ -12,7 +12,7 @@ List of artifacts:
 
 - [Max patch to create dataset](data/tiny_piano/tiny_piano.maxpat)
 - [Notebook with model training and experiments](experiments/vae_simple.ipynb)
-- [Successful checkpoint](experiments/lightning_logs/vae)
+- [Successful checkpoint](experiments/vae_simple)
 
 # Inspiration sources
 
