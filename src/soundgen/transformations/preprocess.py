@@ -63,8 +63,6 @@ class PreprocessingModule(nn.Module):
         self.hop_length = hop_length if hop_length is not None else n_fft // 2
         self.win_length = win_length if win_length is not None else n_fft
         self.target_shape = target_shape
-        self.s_min = None
-        self.s_max = None
 
         if representation == "mel":
             self.spectrogram = MelSpectrogram(
@@ -101,7 +99,7 @@ class PreprocessingModule(nn.Module):
         waveform = self._crop_or_pad(waveform)
         spectrogram = self.spectrogram(waveform)
         spectrogram = self._resize_spectrogram(spectrogram)
-        spectrogram, self.s_min, self.s_max = self._normalize_spectrogram(spectrogram)
+        spectrogram = self._normalize_spectrogram(spectrogram)
         spectrogram = spectrogram.unsqueeze(0)  # Add channel dimension
         # spectrogram = waveform
         return spectrogram
@@ -168,22 +166,13 @@ class PreprocessingModule(nn.Module):
         )
         return spec_4d.squeeze(0).squeeze(0)
 
-    def _normalize_spectrogram(self, spectrogram: torch.Tensor) -> tuple[torch.Tensor, float, float]:
-        """Normalize spectrogram to [0, 1] range.
+    def _normalize_spectrogram(self, spectrogram: torch.Tensor) -> torch.Tensor:
+        """Normalize spectrogram to [0, 1] range."""
 
-        Returns
-        -------
-        spectrogram_norm : torch.Tensor
-            Normalized spectrogram.
-        s_min : float
-            Minimum value of the original spectrogram.
-        s_max : float
-            Maximum value of the original spectrogram.
-        """
         s_min = spectrogram.min().item()
         s_max = spectrogram.max().item()
         spectrogram_norm = (spectrogram - s_min) / (s_max - s_min + 1e-9)
-        return spectrogram_norm, s_min, s_max
+        return spectrogram_norm
 
     def _augment(self, waveform: torch.Tensor):
         return waveform  # Placeholder for future augmentations
@@ -215,12 +204,10 @@ class PreprocessingPipeline:
             sample_rate, audio_data = self.audio_from_table(idx)
             audio_data = np.asarray(audio_data).copy()  # Ensure torch gets a writable ndarray
             waveform = torch.from_numpy(audio_data).unsqueeze(0)  # Add batch dimension
-            spectrogram, s_min, s_max = self.module(waveform, sample_rate, save_path=save_folder)
+            spectrogram = self.module(waveform, sample_rate, save_path=save_folder)
             torch.save(
                 {
                     "spectrogram": spectrogram,
-                    "s_min": s_min,
-                    "s_max": s_max,
                     "label": label,
                 },
                 f"{save_folder}/id{idx}_label{label}.pt",
