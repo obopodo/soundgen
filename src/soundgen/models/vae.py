@@ -9,15 +9,15 @@ from torch import nn
 from torch.optim import Adam
 from torchinfo import summary
 
-from soundgen.configs import VAEConfig
 from soundgen.models.utils import calculate_conv2d_output_shape, get_device
 
 DEBUG_CONVOLUTIONS = False
+DEBUG_LOSS = False
 
 logger = logging.getLogger(__name__)
-if not logger.hasHandlers():
+if DEBUG_LOSS and not logger.hasHandlers():
     logger.setLevel(logging.INFO)
-    filename = Path(__file__).parent.parent.parent / "vae_loss.log"
+    filename = Path(__file__).parent.parent.parent.parent / "vae_loss.log"
     fh = logging.FileHandler(filename)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     fh.setFormatter(formatter)
@@ -87,7 +87,14 @@ class Encoder(nn.Module):
                     padding=self.padding,
                 )
             )
-            conv_layers.append(nn.BatchNorm2d(self.conv_filters_number[i]))
+            # conv_layers.append(nn.BatchNorm2d(self.conv_filters_number[i]))
+            conv_layers.append(
+                nn.GroupNorm(
+                    num_groups=min(8, self.conv_filters_number[i]),
+                    num_channels=self.conv_filters_number[i],
+                )
+            )
+
             conv_layers.append(nn.ReLU())
 
         return conv_layers
@@ -236,8 +243,14 @@ class DecoderUpsample(Decoder):
                     padding="same",
                 )
             )
+            # conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
+            conv_transpose_layers.append(
+                nn.GroupNorm(
+                    num_groups=min(8, self.conv_filters_number[i - 1]),
+                    num_channels=self.conv_filters_number[i - 1],
+                )
+            )
             conv_transpose_layers.append(nn.ReLU())
-            conv_transpose_layers.append(nn.BatchNorm2d(self.conv_filters_number[i - 1]))
 
         # Final upsample + conv to recover original channel count and spatial size
         final_target_hw = (self.input_shape[1], self.input_shape[2])
@@ -265,6 +278,7 @@ class VAE(nn.Module):
         padding: int = 1,
         shape_before_bottleneck=None,
         use_transpose_decoder: bool = False,
+        autoencode: bool = False,
     ):
         super().__init__()
         self._mu = None
@@ -276,6 +290,7 @@ class VAE(nn.Module):
         self.conv_strides = conv_strides  # stride for each conv layer, eg [1, 2, 2]
         self.latent_space_dim = latent_space_dim
         self.padding = padding
+        self.autoencode = autoencode
 
         self.encoder = Encoder(
             input_shape=input_shape,
@@ -307,6 +322,8 @@ class VAE(nn.Module):
         return x
 
     def reparameterize(self, mu, log_var):
+        if self.autoencode:
+            return mu
         epsilon = torch.randn_like(log_var)  # .to(DEVICE)
         z = mu + torch.exp(log_var / 2) * epsilon  # reparameterization trick
         return z
@@ -379,6 +396,7 @@ class VAELit(L.LightningModule):
         padding: int = 1,
         shape_before_bottleneck=None,
         use_transpose_decoder: bool = False,
+        autoencode: bool = False,
         warmup_epochs: int = 0,
         kl_weight: float = 1.0,
         learning_rate: float = 1e-3,
@@ -394,6 +412,7 @@ class VAELit(L.LightningModule):
             padding=padding,
             shape_before_bottleneck=shape_before_bottleneck,
             use_transpose_decoder=use_transpose_decoder,
+            autoencode=autoencode,
         )
         self.loss_fn = VAELoss(
             kl_weight=kl_weight,

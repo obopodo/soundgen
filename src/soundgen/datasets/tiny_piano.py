@@ -21,7 +21,7 @@ class TinyPianoDataset(Dataset):
         return folder
 
     def _get_files(self, folder: Path) -> list[Path]:
-        files = list(folder.glob("*.wav"))
+        files = sorted(folder.glob("*.wav"))
         if len(files) == 0:
             raise FileNotFoundError(f"No .wav files found in folder {folder}.")
         return files

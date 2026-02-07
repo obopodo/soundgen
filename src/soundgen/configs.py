@@ -1,5 +1,8 @@
+import inspect
 import json
 from dataclasses import asdict, dataclass, field
+
+import yaml
 
 
 @dataclass
@@ -22,10 +25,11 @@ class VAEConfig:
     # Loss params:
     kl_weight: float = 1.0
     warmup_epochs: int = 0
+    autoencode: bool = False
 
-    def __post_init__(self):
-        if isinstance(self.shape_before_bottleneck, list):
-            self.shape_before_bottleneck = tuple(self.shape_before_bottleneck)
+    # def __post_init__(self):
+    #     if isinstance(self.shape_before_bottleneck, list):
+    #         self.shape_before_bottleneck = tuple(self.shape_before_bottleneck)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -33,10 +37,25 @@ class VAEConfig:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=4)
 
+    @staticmethod
+    def _align_with_signature(data: dict) -> dict:
+        # check that the keys in data match the dataclass fields
+        return {k: data[k] for k in inspect.signature(VAEConfig).parameters}
+
     @classmethod
     def from_json(cls, path: str) -> "VAEConfig":
         with open(path, "r") as f:
             data = json.load(f)
+
+        data = cls._align_with_signature(data)
+        return cls(**data)
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "VAEConfig":
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+
+        data = cls._align_with_signature(data)
         return cls(**data)
 
     def __repr__(self) -> str:
