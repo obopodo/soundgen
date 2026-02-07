@@ -9,15 +9,15 @@ from torch import nn
 from torch.optim import Adam
 from torchinfo import summary
 
-from soundgen.configs import VAEConfig
 from soundgen.models.utils import calculate_conv2d_output_shape, get_device
 
 DEBUG_CONVOLUTIONS = False
+DEBUG_LOSS = False
 
 logger = logging.getLogger(__name__)
-if not logger.hasHandlers():
+if DEBUG_LOSS and not logger.hasHandlers():
     logger.setLevel(logging.INFO)
-    filename = Path(__file__).parent.parent.parent / "vae_loss.log"
+    filename = Path(__file__).parent.parent.parent.parent / "vae_loss.log"
     fh = logging.FileHandler(filename)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     fh.setFormatter(formatter)
