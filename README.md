@@ -8,6 +8,11 @@ My implementations of generative audio models. The main goal of all this is to c
 
 Simple VAE which generates one sound at a time. I trained it on a custom dataset which contains 19 chromatic piano notes generated with MaxMSP script.
 
+Listen the result example:
+
+https://github.com/user-attachments/assets/52811dad-b0d7-4b6e-b1d6-b0c5309243c2
+
+
 List of artifacts:
 
 - [Max patch to create dataset](data/tiny_piano/tiny_piano.maxpat)
