@@ -1,6 +1,6 @@
 # Sound generation with neural networks
 
-My implementations of audio generative models.
+My implementations of generative audio models. The main goal of all this is to create oddly sounding synths using NNs.
 
 # Architectures
 
